@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref--excluded vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard" lang="en" dir="ltr">
+<head><script type='text/javascript' >
+const lsijVersion = 1;
+
+
+
+class Flags {
+	constructor(url, terms) {
+		this.url = url;
+		this.matched = {};
+
+		this.terms = [];
+		terms.forEach((term) => {
+			let s = term.replace(/[\]{}?^$().*\\+|[]/g, '\\$&');
+			s = s.replace(/\\\*/g, '.*');
+			s = s.replace(/\\\?/g, '.');
+			let regex = new RegExp('\\b' + s + '\\b', 'gi');
+			this.terms.push({term: term, regex: regex});
+		});
+	}
+
+	report(flags) {
+        console.debug('[LS Filter] flag report');
+		if (!flags.length)
+            return;
+
+		const xhr = new XMLHttpRequest();
+		xhr.open('POST', document.location.origin + '/9cc0c94a0ec532c0b1105a8874c6340fece888ada818f1b1a1d66d5d2004dea8/log_flag', true);
+		console.debug('[LS Filter] sending -> ', flags);
+		xhr.send(JSON.stringify({
+			url: this.url.href,
+			flags: flags,
+			at_epoch_ms: Date.now()
+		}));
+	}
+
+	matchTerms(input, flagAll) {
+		const matches = [];
+		this.terms.forEach((term) => {
+			const hits = input.match(term.regex);
+			if (!hits || !hits.length)
+				return;
+
+			let added = false;
+			if (typeof(this.matched[term.term]) === 'undefined')
+				added = true
+
+			let count = hits.length;
+			if (!added)
+				count -= this.matched[term.term];
+
+			this.matched[term.term] = hits.length;
+
+			if (added || flagAll)
+				matches.push([term.term, count]);
+		});
+		return matches;
+	}
+
+	scanIntentValue(value) {
+		const matches = this.matchTerms(value, true);
+		const changes = [];
+		matches.forEach((match) => {
+			match[2] = true; // mark as user entered
+			changes.push(match);
+		});
+
+		if (changes.length)
+			this.report(changes);
+	}
+
+	scanIntentValues(values) {
+		values.forEach((value) => {
+			this.scanIntentValue(value);
+		});
+	}
+
+	scanIntentEvent(event) {
+		switch (event.target.tagName.toLowerCase()) {
+		case 'input':
+			let type = event.target.type || 'text';
+			type = type.toLowerCase();
+
+			// Dont scan password fields
+			if (type === 'password')
+				return;
+			this.scanIntentValue(event.target.value);
+			break;
+		case 'textarea':
+			this.scanIntentValue(event.target.value);
+			break;
+		}
+	}
+
+	scanIntent(event) {
+		if (typeof(gatherIntent) === 'function') {
+			const intent = gatherIntent();
+			if (intent.length)
+				this.scanIntentValues(intent);
+		}
+	}
+
+	onChange(event) {
+		this.scanIntentEvent(event);
+	}
+
+	onKeyup(event) {
+		this.scanIntentEvent(event);
+	}
+
+	bindDOM() {
+		document.addEventListener('change', this.onChange.bind(this));
+		document.addEventListener('keyup', this.onKeyup.bind(this));
+		setInterval(() => {
+			this.scanIntent();
+		}, 1000);
+	}
+}
+
+const initFlagScanning = function(terms) {
+	if (!terms.length)
+		return;
+
+	console.debug('[LS Filter] init flag scanning');
+	const a = document.createElement('A');
+	a.href = window.location.href;
+	const flags = new Flags(a, terms);
+	
+	console.debug('[LS Filter] flagging intent');
+	if (typeof(initGatherIntent) === 'function')
+		initGatherIntent();
+
+	flags.bindDOM();
+	
+};
+
+initFlagScanning(["suicide","I want to kill myself","shooting"]);
+
+
+
+function checkCurrentSite(yt, url) {
+  const xhr = new XMLHttpRequest();
+  const body = JSON.stringify({
+    url: url || window.location.href,
+    youtube: yt
+  });
+  console.log('[LS Filter] reporting ->', body);
+  const checkUrl = document.location.origin + '/9cc0c94a0ec532c0b1105a8874c6340fece888ada818f1b1a1d66d5d2004dea8/log';
+  xhr.open('POST', checkUrl, true);
+  xhr.send(body);
+  xhr.onreadystatechange = function () {
+    if (this.status === 200 && xhr.responseText) {
+      const score = JSON.parse(xhr.responseText);
+      console.log('[LS Filter] score ->', score.allow);
+      if (score.redirect) {
+        window.location.href = score.redirect;
+        hardBlock();
+      }
+    }
+  };
+}
+
+let hardBlockPolicy;
+function getHardBlockPolicy() {
+  if (typeof(trustedTypes) !== 'undefined' && !hardBlockPolicy) {
+    hardBlockPolicy = trustedTypes.createPolicy('hardBlock', {
+      createHTML: (string) => string
+    });
+  }
+  return hardBlockPolicy;
+}
+
+function hardBlock() {
+  stopVideo();
+  const stopInt = setInterval(stopVideo, 500);
+  setTimeout(() => {
+    const policy = getHardBlockPolicy();
+    if (policy) {
+      document.body.innerHTML = policy.createHTML('<img src="/9cc0c94a0ec532c0b1105a8874c6340fece888ada818f1b1a1d66d5d2004dea8/blocked-image-search.png" style="width: 100%; height: 100%">');
+    } else {
+      document.body.innerHTML = '<img src="/9cc0c94a0ec532c0b1105a8874c6340fece888ada818f1b1a1d66d5d2004dea8/blocked-image-search.png" style="width: 100%; height: 100%">';
+    }
+    clearInterval(stopInt);
+  }, 3000)
+}
+
+function stopVideo() {
+  const ea = document.getElementsByTagName('video');
+  for (i in ea) {
+    if (typeof(ea[i].pause) !== 'function') {
+      continue;
+    }
+    if (!ea[i].paused) {
+        console.debug('[LS Filter] pause video');
+        ea[i].pause();
+    }
+  }
+}
+
+function googleVideo() {
+  if (window.location.href.match(/google\.com\/search\?/)) {
+    const vidMatcher = /google\.com\/search\?.*vid:([^#\&\?]{11})/;
+    let prevVideo;
+    new MutationObserver(function() {
+      console.log('[LS Filter] MutationObserver');
+      let video;
+      let m = window.location.href.match(vidMatcher)
+      if (m) {
+        video = m[1];
+      }
+      if (video === prevVideo) { return; }           
+      console.log('[LS Filter] scoring video ->', video);
+      prevVideo = video;
+      checkCurrentSite(true, 'https://www.youtube.com/watch?v=' + video);
+    }).observe(document, {subtree: true, childList: true});
+  }
+}
+
+function onLoad() {
+  console.log('[LS Filter] loaded');
+  if (window.top === window.self) {
+    console.log('[LS Filter] top window: ' + window.location.href);
+    googleVideo();
+  }
+}
+
+onLoad();
+
+</script>
+<meta charset="UTF-8">
+<title>File:Smiley.svg - Wikipedia</title>
+<script>(function(){var className="client-js vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref--excluded vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard";var cookie=document.cookie.match(/(?:^|; )enwikimwclientpreferences=([^;]+)/);if(cookie){cookie[1].split('%2C').forEach(function(pref){className=className.replace(new RegExp('(^| )'+pref.replace(/-clientpref-\w+$|[^\w-]+/g,'')+'-clientpref-\\w+( |$)'),'$1'+pref+'$2');});}document.documentElement.className=className;}());RLCONF={"wgBreakFrames":false,"wgSeparatorTransformTable":["",""],"wgDigitTransformTable":["",""],"wgDefaultDateFormat":"dmy","wgMonthNames":["","January","February","March","April","May","June","July","August","September","October","November","December"],"wgRequestId":"18d7fa3b-17a3-4847-a32a-6da5702d8bb1","wgCanonicalNamespace":"File","wgCanonicalSpecialPageName":false,"wgNamespaceNumber":6,"wgPageName":"File:Smiley.svg","wgTitle":"Smiley.svg","wgCurRevisionId":0,"wgRevisionId":0,"wgArticleId":0,"wgIsArticle":true,"wgIsRedirect":false,"wgAction":"view","wgUserName":null,"wgUserGroups":["*"],"wgCategories":[],"wgPageViewLanguage":"en","wgPageContentLanguage":"en","wgPageContentModel":"wikitext","wgRelevantPageName":"File:Smiley.svg","wgRelevantArticleId":0,"wgTempUserName":null,"wgIsProbablyEditable":false,"wgRelevantPageIsProbablyEditable":false,"wgRestrictionCreate":[],"wgNoticeProject":"wikipedia","wgFlaggedRevsParams":{"tags":{"status":{"levels":1}},"namespaces":[0,4]},"wgConfirmEditCaptchaNeededForGenericEdit":"hcaptcha","wgConfirmEditForceShowCaptcha":false,"wgConfirmEditHCaptchaSiteKey":"5d0c670e-a5f4-4258-ad16-1f42792c9c62","wgMediaViewerOnClick":true,"wgMediaViewerEnabledByDefault":true,"wgMediaViewerMobileBeta":false,"wgPopupsFlags":0,"wgVisualEditor":{"pageLanguageCode":"en","pageLanguageDir":"ltr","pageVariantFallbacks":"en"},"wgMFDisplayWikibaseDescriptions":{"search":true,"watchlist":true,"tagline":false,"nearby":true},"wgWMESchemaEditAttemptStepOversample":false,"wgWMEPageLength":0,"wgTestKitchenUserExperiments":{"overrides":[],"enrolled":[],"assigned":[],"subject_ids":[]},"wgEditSubmitButtonLabelPublish":true,"wgVisualEditorPageIsDisambiguation":false,"wgULSPosition":"interlanguage","wgULSisCompactLinksEnabled":false,"wgVector2022LanguageInHeader":true,"wgULSisLanguageSelectorEmpty":true,"wgULSLanguageSelectorV2Enabled":true,"wgCheckUserClientHintsHeadersJsApi":["brands","architecture","bitness","fullVersionList","mobile","model","platform","platformVersion"],"wgPersonalDashboardMenuVisible":false};
+RLSTATE={"ext.globalCssJs.user.styles":"ready","site.styles":"ready","user.styles":"ready","ext.globalCssJs.user":"ready","user":"ready","user.options":"loading","ext.wikimediamessages.styles":"ready","mediawiki.interface.helpers.styles":"ready","mediawiki.interface.helpers.linker.styles":"ready","mediawiki.action.view.filepage":"ready","skins.vector.search.codex.styles":"ready","skins.vector.styles":"ready","skins.vector.icons":"ready","filepage":"ready","ext.visualEditor.desktopArticleTarget.noscript":"ready","ext.uls.interlanguage":"ready"};RLPAGEMODULES=["mediawiki.action.view.metadata","site","mediawiki.page.ready","mediawiki.toc","skins.vector.js","ext.centralNotice.geoIP","ext.centralNotice.startUp","ext.gadget.ReferenceTooltips","ext.gadget.switcher","ext.urlShortener.toolbar","ext.centralauth.centralautologin","ext.testKitchen","mmv.bootstrap","ext.popups","ext.visualEditor.desktopArticleTarget.init","ext.echo.centralauth","ext.eventLogging","ext.wikimediaEvents","ext.navigationTiming","ext.uls.interface","ext.cx.eventlogging.campaigns","wikibase.databox.fromWikidata","ext.checkUser.clientHints"];</script>
+<script>(RLQ=window.RLQ||[]).push(function(){mw.loader.impl(function(){return["user.options@12s5i",function($,jQuery,require,module){mw.user.tokens.set({"patrolToken":"+\\","watchToken":"+\\","csrfToken":"+\\"});
+}];});});</script>
+<link rel="stylesheet" href="/w/load.php?lang=en&amp;modules=ext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediamessages.styles%7Cfilepage%7Cmediawiki.action.view.filepage%7Cmediawiki.interface.helpers.linker.styles%7Cmediawiki.interface.helpers.styles%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles&amp;only=styles&amp;skin=vector-2022">
+<script async="" src="/w/load.php?lang=en&amp;modules=startup&amp;only=scripts&amp;raw=1&amp;skin=vector-2022"></script>
+<link rel="stylesheet" href="https://commons.wikimedia.org/w/index.php?title=MediaWiki:Filepage.css&amp;action=raw&amp;ctype=text/css">
+<meta name="ResourceLoaderDynamicStyles" content="">
+<link rel="stylesheet" href="/w/load.php?lang=en&amp;modules=site.styles&amp;only=styles&amp;skin=vector-2022">
+<meta name="generator" content="MediaWiki 1.47.0-wmf.18">
+<meta name="referrer" content="origin">
+<meta name="referrer" content="origin-when-cross-origin">
+<meta name="robots" content="max-image-preview:standard">
+<meta name="format-detection" content="telephone=no">
+<meta property="og:image" content="https://thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/1280px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="1200">
+<meta name="viewport" content="width=1120">
+<meta property="og:title" content="File:Smiley.svg - Wikipedia">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="//thumb.wikimedia.org">
+<link rel="apple-touch-icon" href="/static/apple-touch/wikipedia.png">
+<link rel="icon" href="/static/favicon/wikipedia.ico">
+<link rel="search" type="application/opensearchdescription+xml" href="/w/rest.php/v1/search" title="Wikipedia (en)">
+<link rel="EditURI" type="application/rsd+xml" href="//en.wikipedia.org/w/api.php?action=rsd">
+<link rel="canonical" href="https://commons.wikimedia.org/wiki/File:Smiley.svg">
+<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">
+<link rel="alternate" type="application/atom+xml" title="Wikipedia Atom feed" href="/w/index.php?title=Special:RecentChanges&amp;feed=atom">
+<link rel="dns-prefetch" href="//meta.wikimedia.org" />
+<link rel="dns-prefetch" href="auth.wikimedia.org">
+</head>
+<body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-6 ns-subject page-File_Smiley_svg rootpage-File_Smiley_svg skin-vector-2022 action-view">
+<div id="mw-aria-live-region" class="mw-aria-live-region" aria-live="polite"></div><a class="mw-jump-link" href="#bodyContent">Jump to content</a>
+<div class="vector-header-container">
+	<header class="vector-header mw-header no-font-mode-scale">
+		<div class="vector-header-start">
+			<nav class="vector-main-menu-landmark" aria-label="Site">
+				
+<div id="vector-main-menu-dropdown" class="vector-dropdown vector-main-menu-dropdown vector-button-flush-left vector-button-flush-right"  title="Main menu" >
+	<input type="checkbox" id="vector-main-menu-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-main-menu-dropdown" class="vector-dropdown-checkbox "  aria-label="Main menu"   >
+	<label id="vector-main-menu-dropdown-label" for="vector-main-menu-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-menu mw-ui-icon-wikimedia-menu cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Main menu</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+				<div id="vector-main-menu-unpinned-container" class="vector-unpinned-container">
+		
+<div id="vector-main-menu" class="vector-main-menu vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-main-menu-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="main-menu-pinned"
+	data-pinnable-element-id="vector-main-menu"
+	data-pinned-container-id="vector-main-menu-pinned-container"
+	data-unpinned-container-id="vector-main-menu-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Main menu</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-main-menu.pin" aria-label="Move Main menu to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-main-menu.unpin" aria-label="Hide Main menu">hide</button>
+</div>
+
+	
+<div id="p-navigation" class="vector-menu mw-portlet mw-portlet-navigation"  >
+	<div class="vector-menu-heading">
+		Navigation
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-mainpage-description" class="mw-list-item"><a href="/wiki/Main_Page" title="Visit the main page [z]" accesskey="z"><span>Main page</span></a></li><li id="n-contents" class="mw-list-item"><a href="/wiki/Wikipedia:Contents" title="Guides to browsing Wikipedia"><span>Contents</span></a></li><li id="n-currentevents" class="mw-list-item"><a href="/wiki/Portal:Current_events" title="Articles related to current events"><span>Current events</span></a></li><li id="n-randompage" class="mw-list-item"><a href="/wiki/Special:Random" title="Visit a randomly selected article [x]" accesskey="x"><span>Random article</span></a></li><li id="n-aboutsite" class="mw-list-item"><a href="/wiki/Wikipedia:About" title="Learn about Wikipedia and how it works"><span>About Wikipedia</span></a></li><li id="n-contactpage" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us" title="How to contact Wikipedia"><span>Contact us</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-interaction" class="vector-menu mw-portlet mw-portlet-interaction"  >
+	<div class="vector-menu-heading">
+		Contribute
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-help" class="mw-list-item"><a href="/wiki/Help:Contents" title="Guidance on how to use and edit Wikipedia"><span>Help</span></a></li><li id="n-introduction" class="mw-list-item"><a href="/wiki/Help:Introduction" title="Learn how to edit Wikipedia"><span>Learn to edit</span></a></li><li id="n-portal" class="mw-list-item"><a href="/wiki/Wikipedia:Community_portal" title="The hub for editors"><span>Community portal</span></a></li><li id="n-recentchanges" class="mw-list-item"><a href="/wiki/Special:RecentChanges" title="A list of recent changes to Wikipedia [r]" accesskey="r"><span>Recent changes</span></a></li><li id="n-upload" class="mw-list-item"><a href="/wiki/Wikipedia:File_upload_wizard" title="Add images or other media for use on Wikipedia"><span>Upload file</span></a></li><li id="n-specialpages" class="mw-list-item"><a href="/wiki/Special:SpecialPages" title="A list of all special pages [q]" accesskey="q"><span>Special pages</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+				</div>
+
+	</div>
+</div>
+
+		</nav>
+			
+<a href="/wiki/Main_Page" class="mw-logo">
+	<img class="mw-logo-icon" src="/static/images/icons/enwiki-25.svg" alt="" aria-hidden="true" height="50" width="50">
+	<span class="mw-logo-container skin-invert">
+		<img class="mw-logo-wordmark" alt="Wikipedia" src="/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg" style="width: 8.75em; height: 1.375em;">
+		<img class="mw-logo-tagline" alt="The Free Encyclopedia" src="/static/images/mobile/copyright/wikipedia-tagline-en-25.svg" width="140" height="11" style="width: 8.75em; height: 0.6875em;">
+	</span>
+</a>
+
+		</div>
+		<div class="vector-header-end">
+			
+<div id="p-search" role="search" class="vector-search-box-vue  vector-search-box-collapses vector-search-box-show-thumbnail vector-search-box-auto-expand-width vector-search-box">
+	<a href="/wiki/Special:Search" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only search-toggle" title="Search Wikipedia [f]" accesskey="f"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+	</a>
+	<div class="vector-typeahead-search-container">
+		<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail cdx-typeahead-search--auto-expand-width">
+			<form action="/w/index.php" id="searchform" class="cdx-search-input cdx-search-input--has-end-button">
+				<div id="simpleSearch" class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+					<div class="cdx-text-input cdx-text-input--has-start-icon">
+						<input
+							class="cdx-text-input__input mw-searchInput" autocomplete="off"
+							 type="search" name="search" placeholder="Search Wikipedia" aria-label="Search Wikipedia" autocapitalize="none" spellcheck="false" title="Search Wikipedia [f]" accesskey="f" id="searchInput"
+							>
+						<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+					</div>
+					<input type="hidden" name="title" value="Special:Search">
+				</div>
+				<button class="cdx-button cdx-search-input__end-button">Search</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+			<nav class="vector-user-links vector-user-links-wide" aria-label="Personal tools">
+	<div class="vector-user-links-main">
+	
+<div id="p-vector-user-menu-preferences" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-userpage" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	<nav class="vector-appearance-landmark" aria-label="Appearance">
+		
+<div id="vector-appearance-dropdown" class="vector-dropdown "  title="Change the appearance of the page&#039;s font size, width, and color" >
+	<input type="checkbox" id="vector-appearance-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-appearance-dropdown" class="vector-dropdown-checkbox "  aria-label="Appearance"   >
+	<label id="vector-appearance-dropdown-label" for="vector-appearance-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-appearance mw-ui-icon-wikimedia-appearance cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Appearance</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+			<div id="vector-appearance-unpinned-container" class="vector-unpinned-container">
+				
+			</div>
+		
+	</div>
+</div>
+
+	</nav>
+	
+<div id="p-vector-user-menu-notifications" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-overflow" class="vector-menu mw-portlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span>Donate</span></a>
+</li>
+<li id="pt-createaccount-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=File%3ASmiley.svg" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span>Create account</span></a>
+</li>
+<li id="pt-login-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=File%3ASmiley.svg" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	</div>
+	
+<div id="vector-user-links-dropdown" class="vector-dropdown vector-user-menu vector-button-flush-right vector-user-menu-logged-out vector-user-links-dropdown--collapsible"  title="Log in and more options" >
+	<input type="checkbox" id="vector-user-links-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-user-links-dropdown" class="vector-dropdown-checkbox "  aria-label="Personal tools"   >
+	<label id="vector-user-links-dropdown-label" for="vector-user-links-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Personal tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+		
+<div id="p-personal" class="vector-menu mw-portlet mw-portlet-personal"  title="User menu" >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span class="vector-icon mw-ui-icon-heart mw-ui-icon-wikimedia-heart cdx-button__icon"></span>
+
+<span>Donate</span></a>
+</li>
+<li id="pt-createaccount" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=File%3ASmiley.svg" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span>Create account</span></a>
+</li>
+<li id="pt-login" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=File%3ASmiley.svg" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span class="vector-icon mw-ui-icon-logIn mw-ui-icon-wikimedia-logIn cdx-button__icon"></span>
+
+<span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+	</div>
+</div>
+
+</nav>
+
+		</div>
+	</header>
+</div>
+<div class="mw-page-container">
+	<div class="mw-page-container-inner">
+		<div class="vector-sitenotice-container">
+			<div id="siteNotice"><!-- CentralNotice --></div>
+		</div>
+		<div class="vector-column-start">
+			<div class="vector-main-menu-container">
+		<div id="mw-navigation">
+			<nav id="mw-panel" class="vector-main-menu-landmark" aria-label="Site">
+				<div id="vector-main-menu-pinned-container" class="vector-pinned-container">
+				
+				</div>
+		</nav>
+		</div>
+	</div>
+	<div class="vector-sticky-pinned-container">
+				<nav id="mw-panel-toc" aria-label="Contents" data-event-name="ui.sidebar-toc" class="mw-table-of-contents-container vector-toc-landmark">
+					<div id="vector-toc-pinned-container" class="vector-pinned-container">
+					<div id="vector-toc" class="vector-toc vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-toc-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="toc-pinned"
+	data-pinnable-element-id="vector-toc"
+	data-pinned-container-id="vector-toc-pinned-container"
+	data-unpinned-container-id="vector-toc-unpinned-container"
+>
+	<h2 class="vector-pinnable-header-label">Contents</h2>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-toc.pin" aria-label="Move Contents to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-toc.unpin" aria-label="Hide Contents">hide</button>
+</div>
+
+
+	<ul class="vector-toc-contents" id="mw-panel-toc-list">
+		<li id="toc-mw-content-text"
+			class="vector-toc-list-item vector-toc-level-1">
+			<a href="#" class="vector-toc-link">
+				<div class="vector-toc-text">(Top)</div>
+			</a>
+		</li>
+		<li id="toc-file"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#file">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">1</span>
+				<span>File</span>
+			</div>
+		</a>
+		
+		<ul id="toc-file-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-filehistory"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#filehistory">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">2</span>
+				<span>File history</span>
+			</div>
+		</a>
+		
+		<ul id="toc-filehistory-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-filelinks"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#filelinks">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">3</span>
+				<span>File usage</span>
+			</div>
+		</a>
+		
+		<ul id="toc-filelinks-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-globalusage"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#globalusage">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">4</span>
+				<span>Global file usage</span>
+			</div>
+		</a>
+		
+		<ul id="toc-globalusage-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-metadata"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#metadata">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">5</span>
+				<span>Metadata</span>
+			</div>
+		</a>
+		
+		<ul id="toc-metadata-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+</ul>
+</div>
+
+					</div>
+		</nav>
+			</div>
+		</div>
+		<div class="mw-content-container">
+			<main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="Contents" class="vector-toc-landmark">
+						
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left"  title="Table of Contents" >
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+		
+	</div>
+</div>
+
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading">File:Smiley.svg</h1>
+			
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang mw-portlet-lang-icon-only"  >
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector-empty"  aria-label="Add languages" aria-description="This article is only available in this language. Add the article for other languages"  >
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only mw-portlet-lang-heading-empty" aria-hidden="true"  ><span class="vector-icon mw-ui-icon-language mw-ui-icon-wikimedia-language cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Add languages</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+		<div class="mw-portlet-empty-language-selector-body">
+					Page contents not supported in other languages.
+				</div>
+		
+	</div>
+</div>
+</header>
+				<div class="vector-page-toolbar">
+					<div class="vector-page-toolbar-container">
+						<div id="left-navigation">
+							<nav aria-label="Namespaces">
+								
+<div id="p-associated-pages" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-associated-pages"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-nstab-image" class="selected mw-list-item vector-tab-noicon"><a data-mw-interface  href="/wiki/File:Smiley.svg" title="View the file page [c]" accesskey="c" class=""><span>File</span></a>
+</li>
+<li id="ca-talk" class="new mw-list-item vector-tab-noicon"><a data-mw-interface  href="/w/index.php?title=File_talk:Smiley.svg&amp;action=edit&amp;redlink=1" rel="discussion" class="new" title="Discuss improvements to the content page (page does not exist) [t]" accesskey="t"><span>Talk</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+								
+<div id="vector-variants-dropdown" class="vector-dropdown emptyPortlet"  >
+	<input type="checkbox" id="vector-variants-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-variants-dropdown" class="vector-dropdown-checkbox " aria-label="Change language variant"    >
+	<label id="vector-variants-dropdown-label" for="vector-variants-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet" aria-hidden="true"  ><span class="vector-dropdown-label-text">English</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+					
+<div id="p-variants" class="vector-menu mw-portlet mw-portlet-variants emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+						<div id="right-navigation" class="vector-collapsible">
+							<nav aria-label="Views">
+			    
+<div id="p-views" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-views"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view" class="selected mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/wiki/File:Smiley.svg" class=""><span>Read</span></a>
+</li>
+<li id="ca-view-foreign" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="https://commons.wikimedia.org/wiki/File:Smiley.svg" class=""><span>View on Commons</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+			</nav>
+
+							<nav class="vector-page-tools-landmark" aria-label="Page tools">
+								
+<div id="vector-page-tools-dropdown" class="vector-dropdown vector-page-tools-dropdown"  >
+	<input type="checkbox" id="vector-page-tools-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-tools-dropdown" class="vector-dropdown-checkbox "  aria-label="Tools"   >
+	<label id="vector-page-tools-dropdown-label" for="vector-page-tools-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-verticalEllipsis mw-ui-icon-wikimedia-verticalEllipsis cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+									<div id="vector-page-tools-unpinned-container" class="vector-unpinned-container">
+						
+<div id="vector-page-tools" class="vector-page-tools vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-page-tools-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="page-tools-pinned"
+	data-pinnable-element-id="vector-page-tools"
+	data-pinned-container-id="vector-page-tools-pinned-container"
+	data-unpinned-container-id="vector-page-tools-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Tools</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-page-tools.pin" aria-label="Move Tools to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-page-tools.unpin" aria-label="Hide Tools">hide</button>
+</div>
+
+	
+<div id="p-cactions" class="vector-menu mw-portlet mw-portlet-cactions emptyPortlet vector-has-collapsible-items"  >
+	<div class="vector-menu-heading">
+		Actions
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view-more" class="selected mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/wiki/File:Smiley.svg" class=""><span class="vector-icon mw-ui-icon-eye mw-ui-icon-wikimedia-eye cdx-button__icon"></span>
+
+<span>Read</span></a>
+</li>
+<li id="ca-view-foreign-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://commons.wikimedia.org/wiki/File:Smiley.svg" class=""><span class="vector-icon mw-ui-icon-eye mw-ui-icon-wikimedia-eye cdx-button__icon"></span>
+
+<span>View on Commons</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-tb" class="vector-menu mw-portlet mw-portlet-tb"  >
+	<div class="vector-menu-heading">
+		General
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="t-whatlinkshere" class="mw-list-item"><a href="/wiki/Special:WhatLinksHere/File:Smiley.svg" title="List of all English Wikipedia pages containing links to this page [j]" accesskey="j"><span>What links here</span></a></li><li id="t-upload" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard" title="Upload files [u]" accesskey="u"><span>Upload file</span></a></li><li id="t-print" class="mw-list-item"><a href="javascript:print();" rel="alternate" title="Printable version of this page [p]" accesskey="p"><span>Printable version</span></a></li><li id="t-info" class="mw-list-item"><a href="/w/index.php?title=File:Smiley.svg&amp;action=info" title="More information about this page"><span>Page information</span></a></li><li id="t-urlshortener" class="mw-list-item"><a href="/w/index.php?title=Special:UrlShortener&amp;url=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FFile%3ASmiley.svg"><span>Get shortened URL</span></a></li><li class="mw-list-item"><a href="/w/index.php?title=File:Smiley.svg&amp;useparsoid=0"><span>Switch to legacy parser</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-wikibase-otherprojects" class="vector-menu mw-portlet mw-portlet-wikibase-otherprojects emptyPortlet"  >
+	<div class="vector-menu-heading">
+		In other projects
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+									</div>
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+					</div>
+				</div>
+				<div class="vector-column-end no-font-mode-scale">
+					<div class="vector-sticky-pinned-container">
+						<nav class="vector-page-tools-landmark" aria-label="Page tools">
+							<div id="vector-page-tools-pinned-container" class="vector-pinned-container">
+				
+							</div>
+		</nav>
+						<nav class="vector-appearance-landmark" aria-label="Appearance">
+							<div id="vector-appearance-pinned-container" class="vector-pinned-container">
+				<div id="vector-appearance" class="vector-appearance vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-appearance-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="appearance-pinned"
+	data-pinnable-element-id="vector-appearance"
+	data-pinned-container-id="vector-appearance-pinned-container"
+	data-unpinned-container-id="vector-appearance-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Appearance</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-appearance.pin" aria-label="Move Appearance to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-appearance.unpin" aria-label="Hide Appearance">hide</button>
+</div>
+
+
+</div>
+
+							</div>
+		</nav>
+					</div>
+				</div>
+				<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container>
+					<div class="vector-body-before-content">
+							<div class="mw-indicators">
+		<div id="mw-indicator-commons-icon" class="mw-indicator"><span typeof="mw:File"><a href="/wiki/File:Commons-logo.svg" class="mw-file-description" title="This is a file from the Wikimedia Commons"><img alt="This is a file from the Wikimedia Commons" src="//thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/20px-Commons-logo.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="15" height="20" class="mw-file-element" srcset="//thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/40px-Commons-logo.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="1024" data-file-height="1376" /></a></span></div>
+		</div>
+
+						<div id="siteSub" class="noprint">From Wikipedia, the free encyclopedia</div>
+					</div>
+					<div id="contentSub"><div id="mw-content-subtitle"></div></div>
+					
+					
+					<div id="mw-content-text" class="mw-body-content"><ul id="filetoc"></ul>
+<div class="fullImageLink" id="file"><a href="//upload.wikimedia.org/wikipedia/commons/8/85/Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="File:Smiley.svg" src="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/960px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="600" height="600" srcset="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/1280px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail 2x" data-file-width="800" data-file-height="800"></a><div class="mw-filepage-resolutioninfo">Size of the above preview of this SVG file: <a href="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/960px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" class="mw-thumbnail-link">960 × 960 pixels</a>. <span class="mw-filepage-other-resolutions">Other resolutions: <a href="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/250px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" class="mw-thumbnail-link">250 × 250 pixels</a> | <a href="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/500px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" class="mw-thumbnail-link">500 × 500 pixels</a> | <a href="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/1280px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" class="mw-thumbnail-link">1,280 × 1,280 pixels</a> | <a href="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/3840px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" class="mw-thumbnail-link">3,840 × 3,840 pixels</a>.</span></div></div>
+<div class="fullMedia"><bdi dir="ltr"><a href="//upload.wikimedia.org/wikipedia/commons/8/85/Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original" class="internal" title="Smiley.svg">Original file</a></bdi> <span class="fileInfo">(SVG file, nominally 800 × 800 pixels, file size: 1 KB)</span></div><meta property="mw:PageProp/toc" />
+<div class="sharedUploadNotice">
+<div class="mw-parser-output">
+<style data-mw-deduplicate="TemplateStyles:r1317217782">.mw-parser-output .fmbox{clear:both;margin:0.2em 0;border:1px solid #a2a9b1;background-color:var(--background-color-interactive-subtle,#f8f9fa);box-sizing:border-box;color:var(--color-base,#202122)}.mw-parser-output .fmbox-warning{border:1px solid #bb7070;background-color:#ffdbdb}.mw-parser-output .fmbox-editnotice{background-color:transparent}.mw-parser-output .fmbox .mbox-text{padding:0.35em 1em;flex:1 1 100%}.mw-parser-output .fmbox .mbox-image,.mw-parser-output .fmbox .mbox-imageright{padding:4px 2px;text-align:center;flex:none}.mw-parser-output .mbox-invalid-type{text-align:center}@media(min-width:480px){.mw-parser-output .fmbox{display:flex;align-items:center}.mw-parser-output .fmbox .mbox-image{padding-left:1em}.mw-parser-output .fmbox .mbox-imageright{padding-right:1em}}@media screen{html.skin-theme-clientpref-night .mw-parser-output .fmbox-warning{background-color:#300}}@media screen and (prefers-color-scheme:dark){html.skin-theme-clientpref-os .mw-parser-output .fmbox-warning{background-color:#300}}</style><div id="mw-sharedupload" class="plainlinks fmbox fmbox-system"><div class="mbox-image"><span class="noviewer" typeof="mw:File"><a href="/wiki/File:Commons-logo.svg" class="mw-file-description" title="Wikimedia Commons logo"><img alt="icon" src="//thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/40px-Commons-logo.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="30" height="40" class="mw-file-element" srcset="//thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/60px-Commons-logo.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="1024" data-file-height="1376" /></a></span></div><div class="mbox-text" style="text-align: center;">This is a file from the <a href="https://commons.wikimedia.org/wiki/Main_Page" class="extiw" title="commons:Main Page">Wikimedia Commons</a>. Information from its <b><a href="https://commons.wikimedia.org/wiki/File:Smiley.svg" class="extiw" title="commons:File:Smiley.svg">description page there</a></b> is shown below.<br /><span style="font-size: smaller;">Commons is a freely licensed media file repository. <a href="https://commons.wikimedia.org/wiki/Commons:Welcome" class="extiw" title="commons:Commons:Welcome">You can help</a>.</span></div></div>
+</div>
+</div>
+<div id="shared-image-desc"><div class="mw-content-ltr mw-parser-output" lang="en" dir="ltr"><div class="mw-heading mw-heading2"><h2 id="Summary">Summary</h2></div>
+<div class="hproduct commons-file-information-table">
+<table class="fileinfotpl-type-information vevent" dir="ltr">
+
+<tbody><tr>
+<td id="fileinfotpl_desc" class="fileinfo-paramfield" lang="en">Description<span class="summary fn" style="display:none">Smiley.svg</span></td>
+<td class="description">
+<div class="description en" dir="ltr" lang="en"><span class="language en" title="English"><b>English: </b></span> A <a href="https://en.wikipedia.org/wiki/smiley" class="extiw" title="w:smiley">smiley</a> by <a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa</a>, drawn using a text editor.</div> 
+<div class="description fr" dir="ltr" lang="fr"><span class="language fr" title="French"><b>Français&nbsp;: </b></span> Un <a href="https://en.wikipedia.org/wiki/smiley" class="extiw" title="w:smiley">smiley</a> dessiné, par <a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa</a>, avec un simple éditeur de texte.</div> 
+<div class="description de" dir="ltr" lang="de"><span class="language de" title="German"><b>Deutsch: </b></span> Ein Smiley gezeichnet von <a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa</a> mit einem einfachen Texteditor.</div> 
+<div class="description ru" dir="ltr" lang="ru"><span class="language ru" title="Russian"><b>Русский: </b></span> Смайлик, нарисованный участником <a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa</a> в текстовом редакторе.</div> 
+<div class="description hy" dir="ltr" lang="hy"><span class="language hy" title="Armenian"><b>Հայերեն: </b></span> Ռաստրային սմայլ</div> 
+<div class="description sv" dir="ltr" lang="sv"><span class="language sv" title="Swedish"><b>Svenska: </b></span> En gladman/smiley/<a href="https://sv.wikipedia.org/wiki/uttryckssymbol" class="extiw" title="sv:uttryckssymbol">uttryckssymbol</a>, ritad med en texteditor av <a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa</a>.</div>
+<div class="description hu" dir="ltr" lang="hu"><span class="language hu" title="Hungarian"><b>Magyar: </b></span> Vitalapokon használható hangulatjel.</div></td>
+</tr>
+
+<tr>
+<td id="fileinfotpl_date" class="fileinfo-paramfield" lang="en">Date</td>
+<td lang="en">
+<time class="dtstart" datetime="2006-04-21" lang="en" dir="ltr" style="white-space:nowrap">21 April 2006</time></td>
+</tr>
+
+<tr>
+<td id="fileinfotpl_src" class="fileinfo-paramfield" lang="en">Source</td>
+<td>
+<span class="int-own-work" lang="en">Own work</span></td>
+</tr>
+
+<tr>
+<td id="fileinfotpl_aut" class="fileinfo-paramfield" lang="en">Author</td>
+<td>
+<a href="//commons.wikimedia.org/wiki/User:Pumbaa80" title="User:Pumbaa80">Pumbaa80</a></td>
+</tr>
+
+<tr>
+<td id="fileinfotpl_ver" class="fileinfo-paramfield" lang="en">Other versions</td>
+<td>
+<p><span typeof="mw:File"><a href="//commons.wikimedia.org/wiki/File:Smiley2.svg" class="mw-file-description"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Smiley2.svg/120px-Smiley2.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="75" height="75" class="mw-file-element" srcset="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Smiley2.svg/250px-Smiley2.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="550" data-file-height="550"></a></span>
+</p>
+<br> Derivative works of this file:&nbsp; <a href="//commons.wikimedia.org/wiki/File:Watchmen_Smiley.svg" title="File:Watchmen Smiley.svg">Watchmen Smiley.svg</a> </td></tr><tr style="vertical-align: top"><td style="" class="fileinfo-paramfield">SVG&nbsp;development<div style="display: none;">InfoField</div></td><td style=""><div style="vertical-align:middle"><div style="display:table;width:auto;vertical-align:middle;direction:ltr;float:left;line-height:22px;height:24px;font-size:.96em;margin:0px;padding:2px 4px 2px 6px;color:var(--color-base,#000);background:var(--background-color-neutral-subtle,#F8F9FA);border:1px solid #BAB;border-collapse:separate;border-spacing:0px;padding:2px 4px 2px 0px;"><span typeof="mw:File"><a href="//commons.wikimedia.org/wiki/File:W3C_grn.svg" class="mw-file-description"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/W3C_grn.svg/40px-W3C_grn.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="24" height="15" class="mw-file-element" srcset="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/W3C_grn.svg/60px-W3C_grn.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="288" data-file-height="174"></a></span>&nbsp;The <a href="//commons.wikimedia.org/wiki/Help:SVG" title="Help:SVG">SVG</a> code is <span class="plainlinks" style="background:var(--background-color-success-subtle, #dff2eb); color: inherit;"><a rel="nofollow" class="external text" href="https://validator.w3.org/check?uri=https%3A%2F%2Fcommons.wikimedia.org%2Fwiki%2FSpecial%3AFilepath%2FSmiley.svg&amp;doctype=Inline">valid</a></span>.</div><div style="display:table;width:;vertical-align:middle;direction:ltr;float:left;line-height:22px;height:24px;font-size:.96em;margin:0px;padding:2px 4px 2px 6px;color:var(--color-base,#000);background:var(--background-color-neutral-subtle,#F8F9FA);border:1px solid #BAB;border-collapse:separate;border-spacing:0px;;float:left;vertical-align:middle"><span typeof="mw:File"><a href="//commons.wikimedia.org/wiki/File:Notepad_icon_wide.svg" class="mw-file-description"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Notepad_icon_wide.svg/40px-Notepad_icon_wide.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="22" height="22" class="mw-file-element" srcset="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Notepad_icon_wide.svg/60px-Notepad_icon_wide.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="41" data-file-height="41"></a></span>&nbsp;This  icon was created with a <a href="https://en.wikipedia.org/wiki/Text_editor" class="extiw" title="w:Text editor">text editor</a>.</div></div></td>
+</tr>
+
+
+
+</tbody></table>
+</div>
+<div class="mw-heading mw-heading2"><h2 id="Licensing">Licensing</h2></div>
+<table class="licensetpl" style="display:none">
+<tbody><tr>
+<td><span class="licensetpl_short">Public domain</span><span class="licensetpl_long">Public domain</span><span class="licensetpl_link_req">false</span><span class="licensetpl_attr_req">false</span>
+</td></tr></tbody></table>
+<table style="width: 100%; clear: both; margin: 0.5em auto; background-color: var(--background-color-progressive-subtle, #f7f8ff); color: var(--color-base, #202122); border: var(--border-subtle, 2px solid #8888aa); border-spacing: 8px; padding: 0px;" dir="ltr" class="layouttemplate" lang="en">
+<tbody><tr>
+<td><span typeof="mw:File"><span title="Public domain"><img alt="Public domain" src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/PD-icon.svg/120px-PD-icon.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="64" height="64" class="mw-file-element" srcset="https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/PD-icon.svg/250px-PD-icon.svg.png?utm_source=commons.wikimedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="196" data-file-height="196"></span></span>
+</td>
+<td>I, the copyright holder of this work, release this work into the <b><a href="https://en.wikipedia.org/wiki/en:public_domain" class="extiw" title="w:en:public domain">public domain</a></b>. This applies worldwide.<br><small>In some countries this may not be legally possible; if so:</small><br><i>I grant anyone the right to use this work <b>for any purpose</b>, without any conditions, unless such conditions are required by law.</i>
+</td></tr></tbody></table><h1 class="mw-slot-header"><mediainfoslotheader></mediainfoslotheader></h1><mediainfoview style="display: none"><mediainfoviewcaptions><div class="wbmi-entityview-captionsPanel oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><h3 class="wbmi-entityview-captions-header">Captions</h3><div class="wbmi-entityview-caption oo-ui-layout oo-ui-horizontalLayout"><label class="wbmi-language-label oo-ui-widget oo-ui-widget-enabled oo-ui-labelElement-label oo-ui-labelElement oo-ui-labelWidget">English</label><div lang="en" dir="ltr" class="wbmi-caption-value">Enphoso</div></div><div style="display:none;" class="wbmi-entityview-caption wbmi-entityview-hideable oo-ui-layout oo-ui-horizontalLayout"><label class="wbmi-language-label oo-ui-widget oo-ui-widget-enabled oo-ui-labelElement-label oo-ui-labelElement oo-ui-labelWidget">Russian</label><div lang="ru" dir="ltr" class="wbmi-caption-value">Улыбающийся смайлик</div></div></div></mediainfoviewcaptions><mediainfoviewstatements><div id="P180" data-mw-property="P180" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P180&quot;,&quot;hash&quot;:&quot;44237b60b1e1ce104778858632d4ca38c15af398&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;entity-type&quot;:&quot;item&quot;,&quot;numeric-id&quot;:11241,&quot;id&quot;:&quot;Q11241&quot;},&quot;type&quot;:&quot;wikibase-entityid&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$7dff0680-4e1d-9c50-7e17-668750c1a74f&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:180,\&quot;id\&quot;:\&quot;P180\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P180\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P180\&quot;>depicts<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;depicts&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;item\&quot;,\&quot;numeric-id\&quot;:11241,\&quot;id\&quot;:\&quot;Q11241\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P180&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/Q11241\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/Q11241\&quot;>smiley<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P180&quot;:&quot;smiley&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P180 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h3 class="wbmi-statements-title">Items portrayed in this file</h3><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P180" href="https://www.wikidata.org/wiki/Special:EntityPage/P180">depicts</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/Q11241" href="https://www.wikidata.org/wiki/Special:EntityPage/Q11241">smiley</a></bdi></h4></div></div></div></div></div></div></div></div><div id="P170" data-mw-property="P170" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;somevalue&quot;,&quot;property&quot;:&quot;P170&quot;,&quot;hash&quot;:&quot;d3550e860f988c6675fff913440993f58f5c40c5&quot;},&quot;type&quot;:&quot;statement&quot;,&quot;qualifiers&quot;:{&quot;P4174&quot;:[{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P4174&quot;,&quot;hash&quot;:&quot;8df6c4c2f4ba7901faf0a11b7b6e2bc7275cf07e&quot;,&quot;datavalue&quot;:{&quot;value&quot;:&quot;Pumbaa80&quot;,&quot;type&quot;:&quot;string&quot;}}],&quot;P2093&quot;:[{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P2093&quot;,&quot;hash&quot;:&quot;d445be037173baef5e6970011b83e1ba1fd5fe03&quot;,&quot;datavalue&quot;:{&quot;value&quot;:&quot;Pumbaa80&quot;,&quot;type&quot;:&quot;string&quot;}}],&quot;P2699&quot;:[{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P2699&quot;,&quot;hash&quot;:&quot;0579383625c1734c009f0dd3e32b899370d37997&quot;,&quot;datavalue&quot;:{&quot;value&quot;:&quot;https:\/\/commons.wikimedia.org\/wiki\/user:Pumbaa80&quot;,&quot;type&quot;:&quot;string&quot;}}]},&quot;qualifiers-order&quot;:[&quot;P4174&quot;,&quot;P2093&quot;,&quot;P2699&quot;],&quot;id&quot;:&quot;M723508$D715D590-9F34-4A97-A9A1-3B036E89BD84&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:170,\&quot;id\&quot;:\&quot;P170\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P170\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P170\&quot;>creator<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;creator&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:4174,\&quot;id\&quot;:\&quot;P4174\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P4174\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P4174\&quot;>Wikimedia username<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;Wikimedia username&quot;}}},&quot;{\&quot;value\&quot;:\&quot;Pumbaa80\&quot;,\&quot;type\&quot;:\&quot;string\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P4174&quot;:&quot;<a target=\&quot;_blank\&quot; class=\&quot;wb-external-id external\&quot; href=\&quot;https:\/\/meta.wikimedia.org\/wiki\/Special:CentralAuth\/Pumbaa80\&quot; rel=\&quot;nofollow\&quot;>Pumbaa80<\/a>&quot;,&quot;P2093&quot;:&quot;Pumbaa80&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P4174&quot;:&quot;Pumbaa80&quot;,&quot;P2093&quot;:&quot;Pumbaa80&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:2093,\&quot;id\&quot;:\&quot;P2093\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P2093\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P2093\&quot;>author name string<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;author name string&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:2699,\&quot;id\&quot;:\&quot;P2699\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P2699\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P2699\&quot;>URL<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;URL&quot;}}},&quot;{\&quot;value\&quot;:\&quot;https:\\\/\\\/commons.wikimedia.org\\\/wiki\\\/user:Pumbaa80\&quot;,\&quot;type\&quot;:\&quot;string\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P2699&quot;:&quot;<a target=\&quot;_blank\&quot; rel=\&quot;nofollow\&quot; class=\&quot;external free\&quot; href=\&quot;https:\/\/commons.wikimedia.org\/wiki\/user:Pumbaa80\&quot;>https:\/\/commons.wikimedia.org\/wiki\/user:Pumbaa80<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P2699&quot;:&quot;https:\/\/commons.wikimedia.org\/wiki\/user:Pumbaa80&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P170 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P170" href="https://www.wikidata.org/wiki/Special:EntityPage/P170">creator</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>some value</bdi></h4></div></div></div><div class="wbmi-item-qualifiers"><div class="wbmi-snaklist-container"><div class="wbmi-snaklist-content"><div class="wbmi-snak"><div class="wbmi-snak-value"><a target="_blank" title="d:Special:EntityPage/P4174" href="https://www.wikidata.org/wiki/Special:EntityPage/P4174">Wikimedia username</a><span class="wbmi-snak-value-separator">: </span><span class="wbmi-snak-value--value"><a target="_blank" class="wb-external-id external" href="https://meta.wikimedia.org/wiki/Special:CentralAuth/Pumbaa80" rel="nofollow">Pumbaa80</a></span></div></div><div class="wbmi-snak"><div class="wbmi-snak-value"><a target="_blank" title="d:Special:EntityPage/P2093" href="https://www.wikidata.org/wiki/Special:EntityPage/P2093">author name string</a><span class="wbmi-snak-value-separator">: </span><span class="wbmi-snak-value--value">Pumbaa80</span></div></div><div class="wbmi-snak"><div class="wbmi-snak-value"><a target="_blank" title="d:Special:EntityPage/P2699" href="https://www.wikidata.org/wiki/Special:EntityPage/P2699">URL</a><span class="wbmi-snak-value-separator">: </span><span class="wbmi-snak-value--value"><a target="_blank" rel="nofollow" class="external free" href="https://commons.wikimedia.org/wiki/user:Pumbaa80">https://commons.wikimedia.org/wiki/user:Pumbaa80</a></span></div></div></div></div></div></div></div></div></div></div><div id="P6216" data-mw-property="P6216" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P6216&quot;,&quot;hash&quot;:&quot;f88a8b9472789ca66067ed50ce20dc2650af5744&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;entity-type&quot;:&quot;item&quot;,&quot;numeric-id&quot;:88088423,&quot;id&quot;:&quot;Q88088423&quot;},&quot;type&quot;:&quot;wikibase-entityid&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$B96C7318-067A-435A-81A8-22D67C27C38A&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:6216,\&quot;id\&quot;:\&quot;P6216\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P6216\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P6216\&quot;>copyright status<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;copyright status&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;item\&quot;,\&quot;numeric-id\&quot;:88088423,\&quot;id\&quot;:\&quot;Q88088423\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P6216&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/Q88088423\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/Q88088423\&quot;>copyrighted, dedicated to the public domain by copyright holder<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P6216&quot;:&quot;copyrighted, dedicated to the public domain by copyright holder&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P6216 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P6216" href="https://www.wikidata.org/wiki/Special:EntityPage/P6216">copyright status</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/Q88088423" href="https://www.wikidata.org/wiki/Special:EntityPage/Q88088423">copyrighted, dedicated to the public domain by copyright holder</a></bdi></h4></div></div></div></div></div></div></div></div><div id="P275" data-mw-property="P275" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P275&quot;,&quot;hash&quot;:&quot;c50f467f552350584a199dd3c9ceadf026c05180&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;entity-type&quot;:&quot;item&quot;,&quot;numeric-id&quot;:98592850,&quot;id&quot;:&quot;Q98592850&quot;},&quot;type&quot;:&quot;wikibase-entityid&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$FF42BF99-47BD-46B3-A96B-C787BF3628F6&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:275,\&quot;id\&quot;:\&quot;P275\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P275\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P275\&quot;>copyright license<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;copyright license&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;item\&quot;,\&quot;numeric-id\&quot;:98592850,\&quot;id\&quot;:\&quot;Q98592850\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P275&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/Q98592850\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/Q98592850\&quot;>released into the public domain by the copyright holder<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P275&quot;:&quot;released into the public domain by the copyright holder&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P275 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P275" href="https://www.wikidata.org/wiki/Special:EntityPage/P275">copyright license</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/Q98592850" href="https://www.wikidata.org/wiki/Special:EntityPage/Q98592850">released into the public domain by the copyright holder</a></bdi></h4></div></div></div></div></div></div></div></div><div id="P571" data-mw-property="P571" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P571&quot;,&quot;hash&quot;:&quot;5d67cc3d02005e486c0c19d396de2657e76f38e4&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;time&quot;:&quot;+2006-04-01T00:00:00Z&quot;,&quot;timezone&quot;:0,&quot;before&quot;:0,&quot;after&quot;:0,&quot;precision&quot;:11,&quot;calendarmodel&quot;:&quot;http:\/\/www.wikidata.org\/entity\/Q1985727&quot;},&quot;type&quot;:&quot;time&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$7B78DD46-CF59-4867-91F5-DFA19A6397B4&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:571,\&quot;id\&quot;:\&quot;P571\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P571\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P571\&quot;>inception<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;inception&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;time\&quot;:\&quot;+2006-04-01T00:00:00Z\&quot;,\&quot;timezone\&quot;:0,\&quot;before\&quot;:0,\&quot;after\&quot;:0,\&quot;precision\&quot;:11,\&quot;calendarmodel\&quot;:\&quot;http:\\\/\\\/www.wikidata.org\\\/entity\\\/Q1985727\&quot;},\&quot;type\&quot;:\&quot;time\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P571&quot;:&quot;1 April 2006&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P571&quot;:&quot;1 April 2006&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P571 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P571" href="https://www.wikidata.org/wiki/Special:EntityPage/P571">inception</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>1 April 2006</bdi></h4></div></div></div></div></div></div></div></div><div id="P7482" data-mw-property="P7482" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P7482&quot;,&quot;hash&quot;:&quot;83568a288a8b8b4714a68e7239d8406833762864&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;entity-type&quot;:&quot;item&quot;,&quot;numeric-id&quot;:66458942,&quot;id&quot;:&quot;Q66458942&quot;},&quot;type&quot;:&quot;wikibase-entityid&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$B32FFBE8-54D7-4FD7-A515-873BAE6BA83F&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:7482,\&quot;id\&quot;:\&quot;P7482\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P7482\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P7482\&quot;>source of file<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;source of file&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;item\&quot;,\&quot;numeric-id\&quot;:66458942,\&quot;id\&quot;:\&quot;Q66458942\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P7482&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/Q66458942\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/Q66458942\&quot;>original creation by uploader<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P7482&quot;:&quot;original creation by uploader&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P7482 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P7482" href="https://www.wikidata.org/wiki/Special:EntityPage/P7482">source of file</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/Q66458942" href="https://www.wikidata.org/wiki/Special:EntityPage/Q66458942">original creation by uploader</a></bdi></h4></div></div></div></div></div></div></div></div><div id="P1163" data-mw-property="P1163" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P1163&quot;,&quot;hash&quot;:&quot;636199d1806c7cdbae57b4d4298f38fade12d052&quot;,&quot;datavalue&quot;:{&quot;value&quot;:&quot;image\/svg+xml&quot;,&quot;type&quot;:&quot;string&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$10756486-0CAB-4C68-9EF7-6B7285E92437&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:1163,\&quot;id\&quot;:\&quot;P1163\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P1163\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P1163\&quot;>media type<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;media type&quot;}}},&quot;{\&quot;value\&quot;:\&quot;image\\\/svg+xml\&quot;,\&quot;type\&quot;:\&quot;string\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P1163&quot;:&quot;image\/svg+xml&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P1163&quot;:&quot;image\/svg+xml&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P1163 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P1163" href="https://www.wikidata.org/wiki/Special:EntityPage/P1163">media type</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>image/svg+xml</bdi></h4></div></div></div></div></div></div></div></div><div id="P3575" data-mw-property="P3575" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P3575&quot;,&quot;hash&quot;:&quot;22e4eca9c11c090c5ea8441c4a4e19c2928f19c4&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;amount&quot;:&quot;+1120&quot;,&quot;unit&quot;:&quot;http:\/\/www.wikidata.org\/entity\/Q8799&quot;},&quot;type&quot;:&quot;quantity&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$7FCED319-BD77-47E9-ACAA-4CB47D82A192&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:3575,\&quot;id\&quot;:\&quot;P3575\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P3575\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P3575\&quot;>data size<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;data size&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;amount\&quot;:\&quot;+1120\&quot;,\&quot;unit\&quot;:\&quot;http:\\\/\\\/www.wikidata.org\\\/entity\\\/Q8799\&quot;},\&quot;type\&quot;:\&quot;quantity\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P3575&quot;:&quot;1,120 <span class=\&quot;wb-unit\&quot;>byte<\/span>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P3575&quot;:&quot;1,120 byte&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P3575 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P3575" href="https://www.wikidata.org/wiki/Special:EntityPage/P3575">data size</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>1,120 <span class="wb-unit">byte</span></bdi></h4></div></div></div></div></div></div></div></div><div id="P2048" data-mw-property="P2048" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P2048&quot;,&quot;hash&quot;:&quot;67c7a289dcd212ab92bb732137c7f98e8024e520&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;amount&quot;:&quot;+800&quot;,&quot;unit&quot;:&quot;http:\/\/www.wikidata.org\/entity\/Q355198&quot;},&quot;type&quot;:&quot;quantity&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$66756A06-87D7-4575-8938-9B054CB2C387&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:2048,\&quot;id\&quot;:\&quot;P2048\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P2048\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P2048\&quot;>height<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;height&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;amount\&quot;:\&quot;+800\&quot;,\&quot;unit\&quot;:\&quot;http:\\\/\\\/www.wikidata.org\\\/entity\\\/Q355198\&quot;},\&quot;type\&quot;:\&quot;quantity\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P2048&quot;:&quot;800 <span class=\&quot;wb-unit\&quot;>pixel<\/span>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P2048&quot;:&quot;800 pixel&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P2048 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P2048" href="https://www.wikidata.org/wiki/Special:EntityPage/P2048">height</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>800 <span class="wb-unit">pixel</span></bdi></h4></div></div></div></div></div></div></div></div><div id="P2049" data-mw-property="P2049" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P2049&quot;,&quot;hash&quot;:&quot;4c67a814ca64b878fc514a3211f408e4809aac49&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;amount&quot;:&quot;+800&quot;,&quot;unit&quot;:&quot;http:\/\/www.wikidata.org\/entity\/Q355198&quot;},&quot;type&quot;:&quot;quantity&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;id&quot;:&quot;M723508$F1686C25-3775-4A42-8636-E26D3A5518C6&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:2049,\&quot;id\&quot;:\&quot;P2049\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P2049\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P2049\&quot;>width<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;width&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;amount\&quot;:\&quot;+800\&quot;,\&quot;unit\&quot;:\&quot;http:\\\/\\\/www.wikidata.org\\\/entity\\\/Q355198\&quot;},\&quot;type\&quot;:\&quot;quantity\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P2049&quot;:&quot;800 <span class=\&quot;wb-unit\&quot;>pixel<\/span>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P2049&quot;:&quot;800 pixel&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P2049 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P2049" href="https://www.wikidata.org/wiki/Special:EntityPage/P2049">width</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>800 <span class="wb-unit">pixel</span></bdi></h4></div></div></div></div></div></div></div></div><div id="P4092" data-mw-property="P4092" data-mw-statements="[{&quot;mainsnak&quot;:{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P4092&quot;,&quot;hash&quot;:&quot;9dc7d17f4ef6b64fab638215f54eab477396527e&quot;,&quot;datavalue&quot;:{&quot;value&quot;:&quot;b24b014bd2594b31ab061df7e624b997183fcaba&quot;,&quot;type&quot;:&quot;string&quot;}},&quot;type&quot;:&quot;statement&quot;,&quot;qualifiers&quot;:{&quot;P459&quot;:[{&quot;snaktype&quot;:&quot;value&quot;,&quot;property&quot;:&quot;P459&quot;,&quot;hash&quot;:&quot;75dff03c151b13fbab93742164121c16a6aa0de1&quot;,&quot;datavalue&quot;:{&quot;value&quot;:{&quot;entity-type&quot;:&quot;item&quot;,&quot;numeric-id&quot;:13414952,&quot;id&quot;:&quot;Q13414952&quot;},&quot;type&quot;:&quot;wikibase-entityid&quot;}}]},&quot;qualifiers-order&quot;:[&quot;P459&quot;],&quot;id&quot;:&quot;M723508$A2C1B590-7B92-4C7D-8135-821A4F887557&quot;,&quot;rank&quot;:&quot;normal&quot;}]" data-mw-formatvalue="{&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:4092,\&quot;id\&quot;:\&quot;P4092\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P4092\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P4092\&quot;>checksum<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;checksum&quot;}}},&quot;{\&quot;value\&quot;:\&quot;b24b014bd2594b31ab061df7e624b997183fcaba\&quot;,\&quot;type\&quot;:\&quot;string\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P4092&quot;:&quot;b24b014bd2594b31ab061df7e624b997183fcaba&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P4092&quot;:&quot;b24b014bd2594b31ab061df7e624b997183fcaba&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;property\&quot;,\&quot;numeric-id\&quot;:459,\&quot;id\&quot;:\&quot;P459\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/P459\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/P459\&quot;>determination method or standard<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;&quot;:&quot;determination method or standard&quot;}}},&quot;{\&quot;value\&quot;:{\&quot;entity-type\&quot;:\&quot;item\&quot;,\&quot;numeric-id\&quot;:13414952,\&quot;id\&quot;:\&quot;Q13414952\&quot;},\&quot;type\&quot;:\&quot;wikibase-entityid\&quot;}&quot;:{&quot;text\/html&quot;:{&quot;en&quot;:{&quot;P459&quot;:&quot;<a target=\&quot;_blank\&quot; title=\&quot;d:Special:EntityPage\/Q13414952\&quot; href=\&quot;https:\/\/www.wikidata.org\/wiki\/Special:EntityPage\/Q13414952\&quot; lang=\&quot;mul\&quot;>SHA-1<\/a>&quot;}},&quot;text\/plain&quot;:{&quot;en&quot;:{&quot;P459&quot;:&quot;SHA-1&quot;}}}}" class="wbmi-entityview-statementsGroup wbmi-entityview-statementsGroup-P4092 oo-ui-layout oo-ui-panelLayout oo-ui-panelLayout-framed"><div class="wbmi-statements-widget"><div class="wbmi-statement-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi><a target="_blank" title="d:Special:EntityPage/P4092" href="https://www.wikidata.org/wiki/Special:EntityPage/P4092">checksum</a></bdi></h4></div></div></div><div class="wbmi-content-items-group"><div class="wbmi-item wbmi-item-read"><div class="wbmi-item-container"><div class="wbmi-entity-header"><div class="wbmi-entity-data"><div class="wbmi-entity-title"><h4 class="wbmi-entity-label"><bdi>b24b014bd2594b31ab061df7e624b997183fcaba</bdi></h4></div></div></div><div class="wbmi-item-qualifiers"><div class="wbmi-snaklist-container"><div class="wbmi-snaklist-content"><div class="wbmi-snak"><div class="wbmi-snak-value"><a target="_blank" title="d:Special:EntityPage/P459" href="https://www.wikidata.org/wiki/Special:EntityPage/P459">determination method or standard</a><span class="wbmi-snak-value-separator">: </span><span class="wbmi-snak-value--value"><a target="_blank" title="d:Special:EntityPage/Q13414952" href="https://www.wikidata.org/wiki/Special:EntityPage/Q13414952" lang="mul">SHA-1</a></span></div></div></div></div></div></div></div></div></div></div></mediainfoviewstatements></mediainfoview>
+<!-- 
+NewPP limit report
+Parsed by mw‐api‐ext.eqiad.main‐7586d569fc‐mfzt6
+Cached time: 20260830144344
+Cache expiry: 2592000
+Reduced expiry: false
+Complications: [prevent‐selective‐update, has‐slot‐headers]
+CPU time usage: 0.086 seconds
+Real time usage: 0.171 seconds
+Preprocessor visited node count: 4817/1000000
+Revision size: 1078/2097152 bytes
+Post‐expand include size: 32189/2097152 bytes
+Template argument size: 4447/2097152 bytes
+Highest expansion depth: 37/100
+Expensive parser function count: 1/500
+Unstrip recursion depth: 0/20
+Unstrip post‐expand size: 0/5000000 bytes
+Lua time usage: 0.032/10.000 seconds
+Lua memory usage: 1760815/52428800 bytes
+Number of Wikibase entities loaded: 1/400
+-->
+<!--
+Transclusion expansion time report (%,ms,calls,template)
+100.00%  155.797      1 -total
+ 94.92%  147.887      1 Template:Information
+ 47.18%   73.504      1 Template:Igen
+ 39.73%   61.896      1 Template:Information_field
+ 22.44%   34.956      1 Template:Created_with_HandSVG
+ 21.87%   34.066      1 Template:Created_with_Text_Editor
+ 13.13%   20.453      1 Template:Autotranslate
+ 13.11%   20.432      1 Template:DerivativeVersions
+ 10.03%   15.632      2 Template:Created_with/layout
+  7.48%   11.661      1 Template:Created_with/en
+-->
+
+<!-- Render ID 3315d639-a481-11f1-aba9-eb8a8563a118 -->
+
+<!-- Saved in parser cache with key commonswiki:pcache:723508:|#|:idhash:wb=3!wbMobile=0 and timestamp 20260830144344 and revision id 1269842185. Rendering was triggered because: unknown
+ -->
+</div></div>
+<h2 id="filehistory">File history</h2>
+<div id="mw-imagepage-section-filehistory">
+<p>Click on a date/time to view the file as it appeared at that time.
+</p><div class="mw-pager-navigation-bar">(<span class="mw-firstlink">newest</span> | <a href="/w/index.php?title=File:Smiley.svg&amp;dir=prev" class="mw-lastlink">oldest</a>) View (<span class="mw-prevlink">newer 10</span> |  <a href="/w/index.php?title=File:Smiley.svg&amp;offset=20060705145123" rel="next" class="mw-nextlink">older 10</a>) (<span class="mw-numlink">10</span> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=20" class="mw-numlink">20</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=50" class="mw-numlink">50</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=100" class="mw-numlink">100</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=250" class="mw-numlink">250</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=500" class="mw-numlink">500</a>)</div>
+<table class="wikitable filehistory">
+<tr><th></th><th>Date/Time</th><th>Thumbnail</th><th>Dimensions</th><th>User</th><th>Comment</th></tr>
+<tr><td>current</td><td class="filehistory-selected" style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/8/85/Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original">20:51, 5 August 2022</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/8/85/Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 20:51, 5 August 2022" src="//thumb.wikimedia.org/wikipedia/commons/thumb/8/85/Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Smasongarrison" class="mw-userlink" title="User:Smasongarrison"><bdi>Smasongarrison</bdi></a></td><td dir="ltr">slimmed down with svgomg // Editing SVG source code using <a href="https://commons.wikimedia.org/wiki/User:Rillke/SVGedit.js" class="extiw" title="c:User:Rillke/SVGedit.js">c:User:Rillke/SVGedit.js</a></td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220805205103%21Smiley.svg">06:28, 28 July 2022</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220805205103%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 06:28, 28 July 2022" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20220805205103%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Iamthe2fromBBC2" class="mw-userlink" title="User:Iamthe2fromBBC2"><bdi>Iamthe2fromBBC2</bdi></a></td><td dir="ltr">Reverted to version as of 21:40, 13 March 2020 (UTC)</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220728062758%21Smiley.svg">20:14, 27 February 2022</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220728062758%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 20:14, 27 February 2022" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20220728062758%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="512" data-file-height="512"></a></td><td>512 × 512 <span style="white-space: nowrap;">(940 bytes)</span></td><td><a href="/w/index.php?title=User:TSamuel&amp;action=edit&amp;redlink=1" class="mw-userlink new" title="User:TSamuel (page does not exist)"><bdi>TSamuel</bdi></a></td><td dir="ltr">Lossless recompression via SVGOMG &amp; vecta.io/nano, &amp; verified via SVGCheck</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220227201435%21Smiley.svg">21:40, 13 March 2020</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20220227201435%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 21:40, 13 March 2020" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20220227201435%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Matankic" class="mw-userlink" title="User:Matankic"><bdi>Matankic</bdi></a></td><td dir="ltr">Reverted to version as of 15:16, 19 September 2012 (UTC)</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20200313214052%21Smiley.svg">20:52, 13 March 2020</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20200313214052%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 20:52, 13 March 2020" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20200313214052%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1,016 bytes)</span></td><td><a href="/wiki/User:YourGloriousLeader" class="mw-userlink" title="User:YourGloriousLeader"><bdi>YourGloriousLeader</bdi></a></td><td dir="ltr">Minified version sized 81% of previous</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20200313205221%21Smiley.svg">15:16, 19 September 2012</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20200313205221%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 15:16, 19 September 2012" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20200313205221%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Hindustanilanguage" class="mw-userlink" title="User:Hindustanilanguage"><bdi>Hindustanilanguage</bdi></a></td><td dir="ltr">Reverted to version as of 22:49, 21 April 2006</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120919151651%21Smiley.svg">19:14, 12 September 2012</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120919151651%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 19:14, 12 September 2012" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20120919151651%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:GreatOrangePumpkin" class="mw-redirect mw-userlink" title="User:GreatOrangePumpkin"><bdi>GreatOrangePumpkin</bdi></a></td><td dir="ltr">Reverted to version as of 14:53, 5 July 2006</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120912191439%21Smiley.svg">10:50, 12 September 2012</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120912191439%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 10:50, 12 September 2012" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20120912191439%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Hindustanilanguage" class="mw-userlink" title="User:Hindustanilanguage"><bdi>Hindustanilanguage</bdi></a></td><td dir="ltr">Reverted to version as of 12:21, 21 April 2006</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120912105047%21Smiley.svg">14:53, 5 July 2006</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20120912105047%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 14:53, 5 July 2006" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20120912105047%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Shell-man" class="mw-redirect mw-userlink" title="User:Shell-man"><bdi>Shell-man</bdi></a></td><td dir="ltr">Reverted to earlier revision</td></tr>
+<tr><td></td><td style="white-space: nowrap;"><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20060705145301%21Smiley.svg">14:51, 5 July 2006</a></td><td><a href="//upload.wikimedia.org/wikipedia/commons/archive/8/85/20060705145301%21Smiley.svg?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=original"><img alt="Thumbnail for version as of 14:51, 5 July 2006" src="//thumb.wikimedia.org/wikipedia/commons/thumb/archive/8/85/20060705145301%21Smiley.svg/120px-Smiley.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail" decoding="async" loading="lazy" width="120" height="120" data-file-width="800" data-file-height="800"></a></td><td>800 × 800 <span style="white-space: nowrap;">(1 KB)</span></td><td><a href="/wiki/User:Shell-man" class="mw-redirect mw-userlink" title="User:Shell-man"><bdi>Shell-man</bdi></a></td><td dir="ltr">Reverted to earlier revision</td></tr>
+</table>
+<div class="mw-pager-navigation-bar">(<span class="mw-firstlink">newest</span> | <a href="/w/index.php?title=File:Smiley.svg&amp;dir=prev" class="mw-lastlink">oldest</a>) View (<span class="mw-prevlink">newer 10</span> |  <a href="/w/index.php?title=File:Smiley.svg&amp;offset=20060705145123" rel="next" class="mw-nextlink">older 10</a>) (<span class="mw-numlink">10</span> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=20" class="mw-numlink">20</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=50" class="mw-numlink">50</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=100" class="mw-numlink">100</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=250" class="mw-numlink">250</a> | <a href="/w/index.php?title=File:Smiley.svg&amp;offset=&amp;limit=500" class="mw-numlink">500</a>)</div>
+</div>
+<h2 id="filelinks">File usage</h2>
+<div id='mw-imagepage-section-linkstoimage'>
+<p>More than 100 pages use this file.
+The following list shows the first 100 pages that use this file only.
+A <a href="/wiki/Special:WhatLinksHere/File:Smiley.svg" title="Special:WhatLinksHere/File:Smiley.svg">full list</a> is available.
+</p><ul class="mw-imagepage-linkstoimage">
+<li class="mw-imagepage-linkstoimage-ns0"><a href="/wiki/Smiley" title="Smiley">Smiley</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Air_Canada" title="Talk:Air Canada">Talk:Air Canada</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Anthropic_principle" title="Talk:Anthropic principle">Talk:Anthropic principle</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Cable-stayed_bridge" title="Talk:Cable-stayed bridge">Talk:Cable-stayed bridge</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Kirundi" title="Talk:Kirundi">Talk:Kirundi</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Linker_(computing)" title="Talk:Linker (computing)">Talk:Linker (computing)</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:List_of_people_from_Ukraine" title="Talk:List of people from Ukraine">Talk:List of people from Ukraine</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Political_status_of_Taiwan" title="Talk:Political status of Taiwan">Talk:Political status of Taiwan</a></li>
+<li class="mw-imagepage-linkstoimage-ns1"><a href="/wiki/Talk:Slavophilia" title="Talk:Slavophilia">Talk:Slavophilia</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Academic_Challenger" title="User:Academic Challenger">User:Academic Challenger</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Andy" title="User:Andy">User:Andy</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Art_LaPella" title="User:Art LaPella">User:Art LaPella</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Capitalistroadster" title="User:Capitalistroadster">User:Capitalistroadster</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Chris_73" title="User:Chris 73">User:Chris 73</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:DanaJohnson" title="User:DanaJohnson">User:DanaJohnson</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Deirdre~enwiki" title="User:Deirdre~enwiki">User:Deirdre~enwiki</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:GTBacchus" title="User:GTBacchus">User:GTBacchus</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Geogre" title="User:Geogre">User:Geogre</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Indosauros" title="User:Indosauros">User:Indosauros</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Jcw69" title="User:Jcw69">User:Jcw69</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:JeffTL" title="User:JeffTL">User:JeffTL</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Jimbo_Wales/Barnstars" title="User:Jimbo Wales/Barnstars">User:Jimbo Wales/Barnstars</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Joseph_Spiros" title="User:Joseph Spiros">User:Joseph Spiros</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Mushroom" title="User:Mushroom">User:Mushroom</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Pollen" title="User:Pollen">User:Pollen</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:T_ConX" title="User:T ConX">User:T ConX</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:TomStar81/Archive" title="User:TomStar81/Archive">User:TomStar81/Archive</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:UtherSRG" title="User:UtherSRG">User:UtherSRG</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:Wolf530" title="User:Wolf530">User:Wolf530</a></li>
+<li class="mw-imagepage-linkstoimage-ns2"><a href="/wiki/User:YUL89YYZ" title="User:YUL89YYZ">User:YUL89YYZ</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:205.194.127.36" title="User talk:205.194.127.36">User talk:205.194.127.36</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:84denniswong" title="User talk:84denniswong">User talk:84denniswong</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:AlexChurchill" title="User talk:AlexChurchill">User talk:AlexChurchill</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:AlexWasFirst" title="User talk:AlexWasFirst">User talk:AlexWasFirst</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Andy" title="User talk:Andy">User talk:Andy</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Aphaia" title="User talk:Aphaia">User talk:Aphaia</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Aquillion" title="User talk:Aquillion">User talk:Aquillion</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Bitplane" title="User talk:Bitplane">User talk:Bitplane</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Bollar" title="User talk:Bollar">User talk:Bollar</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Brockert" title="User talk:Brockert">User talk:Brockert</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Calieber" title="User talk:Calieber">User talk:Calieber</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Cecropia/Archive_1" title="User talk:Cecropia/Archive 1">User talk:Cecropia/Archive 1</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Chadloder" title="User talk:Chadloder">User talk:Chadloder</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Danny" title="User talk:Danny">User talk:Danny</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Dave_Farquhar" title="User talk:Dave Farquhar">User talk:Dave Farquhar</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:David_Edgar" title="User talk:David Edgar">User talk:David Edgar</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Deeceevoice" title="User talk:Deeceevoice">User talk:Deeceevoice</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Deirdre~enwiki" title="User talk:Deirdre~enwiki">User talk:Deirdre~enwiki</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Drolsi_Susej" title="User talk:Drolsi Susej">User talk:Drolsi Susej</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Edward" title="User talk:Edward">User talk:Edward</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Eugene_van_der_Pijll" title="User talk:Eugene van der Pijll">User talk:Eugene van der Pijll</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Ghe" title="User talk:Ghe">User talk:Ghe</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Goh_wz" title="User talk:Goh wz">User talk:Goh wz</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Gronky" title="User talk:Gronky">User talk:Gronky</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:G~enwiki" title="User talk:G~enwiki">User talk:G~enwiki</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Harry_Potter" title="User talk:Harry Potter">User talk:Harry Potter</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Henrygb" title="User talk:Henrygb">User talk:Henrygb</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Horndude77" title="User talk:Horndude77">User talk:Horndude77</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Ikari" title="User talk:Ikari">User talk:Ikari</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Imaglang" title="User talk:Imaglang">User talk:Imaglang</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Iowahwyman" title="User talk:Iowahwyman">User talk:Iowahwyman</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Itsnotvalid" title="User talk:Itsnotvalid">User talk:Itsnotvalid</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Jondel" title="User talk:Jondel">User talk:Jondel</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Jord" title="User talk:Jord">User talk:Jord</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Kalki" title="User talk:Kalki">User talk:Kalki</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:KeithH" title="User talk:KeithH">User talk:KeithH</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Kils" title="User talk:Kils">User talk:Kils</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Kingturtle/Archive6" title="User talk:Kingturtle/Archive6">User talk:Kingturtle/Archive6</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Kusunose" title="User talk:Kusunose">User talk:Kusunose</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:LGagnon" title="User talk:LGagnon">User talk:LGagnon</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Lee_M" title="User talk:Lee M">User talk:Lee M</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Leonariso" title="User talk:Leonariso">User talk:Leonariso</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Lorax" title="User talk:Lorax">User talk:Lorax</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Loren36/Archive4" title="User talk:Loren36/Archive4">User talk:Loren36/Archive4</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Masssiveego" title="User talk:Masssiveego">User talk:Masssiveego</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Matithyahu" title="User talk:Matithyahu">User talk:Matithyahu</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Meister" title="User talk:Meister">User talk:Meister</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:MyNameIsNotBob/bigarchive" title="User talk:MyNameIsNotBob/bigarchive">User talk:MyNameIsNotBob/bigarchive</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Nat_Krause" title="User talk:Nat Krause">User talk:Nat Krause</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:NessSnorlax" title="User talk:NessSnorlax">User talk:NessSnorlax</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Noisy" title="User talk:Noisy">User talk:Noisy</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Oklonia" title="User talk:Oklonia">User talk:Oklonia</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:OntarioQuizzer" title="User talk:OntarioQuizzer">User talk:OntarioQuizzer</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Orangemike/Archive_1" title="User talk:Orangemike/Archive 1">User talk:Orangemike/Archive 1</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Outerlimits" title="User talk:Outerlimits">User talk:Outerlimits</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Pasquale" title="User talk:Pasquale">User talk:Pasquale</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Pavel_Vozenilek" title="User talk:Pavel Vozenilek">User talk:Pavel Vozenilek</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Pfrishauf" title="User talk:Pfrishauf">User talk:Pfrishauf</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Rawr" title="User talk:Rawr">User talk:Rawr</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Redbird294" title="User talk:Redbird294">User talk:Redbird294</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Rp" title="User talk:Rp">User talk:Rp</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Saltine/Archive_1" title="User talk:Saltine/Archive 1">User talk:Saltine/Archive 1</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Shanemcd" title="User talk:Shanemcd">User talk:Shanemcd</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Simfish" title="User talk:Simfish">User talk:Simfish</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Sophia_(usurped)" title="User talk:Sophia (usurped)">User talk:Sophia (usurped)</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Susvolans" title="User talk:Susvolans">User talk:Susvolans</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Thanos6" title="User talk:Thanos6">User talk:Thanos6</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Wiki_Wikardo" title="User talk:Wiki Wikardo">User talk:Wiki Wikardo</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:ZeLonewolf/Archive_1" title="User talk:ZeLonewolf/Archive 1">User talk:ZeLonewolf/Archive 1</a></li>
+<li class="mw-imagepage-linkstoimage-ns3"><a href="/wiki/User_talk:Zigger" title="User talk:Zigger">User talk:Zigger</a></li>
+</ul>
+<p>View <a href="/wiki/Special:WhatLinksHere/File:Smiley.svg" title="Special:WhatLinksHere/File:Smiley.svg">more links</a> to this file.
+</p></div>
+<h2 id="globalusage">Global file usage</h2>
+<div id="mw-imagepage-section-globalusage"><p>The following other wikis use this file:
+</p><ul class="plainlinks"><li class='mw-gu-onwiki-ab_wikipedia_org'>Usage on ab.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//ab.wikipedia.org/wiki/%D0%A3%D1%87%D0%B0%D1%81%D1%82%D0%BD%D0%B8%D0%BA:MelancholieBot" href="https://ab.wikipedia.org/wiki/%D0%A3%D1%87%D0%B0%D1%81%D1%82%D0%BD%D0%B8%D0%BA:MelancholieBot">Участник:MelancholieBot</a></li>
+	<li><a class="external" data-mw-original-href="//ab.wikipedia.org/wiki/%D0%A3%D1%87%D0%B0%D1%81%D1%82%D0%BD%D0%B8%D0%BA:MelancholieBot/info" href="https://ab.wikipedia.org/wiki/%D0%A3%D1%87%D0%B0%D1%81%D1%82%D0%BD%D0%B8%D0%BA:MelancholieBot/info">Участник:MelancholieBot/info</a></li>
+	<li><a class="external" data-mw-original-href="//ab.wikipedia.org/wiki/%D0%90%D0%BB%D0%B0%D1%85%D3%99%D1%8B%D0%BB%D0%B0_%D0%B0%D1%85%D1%86%D3%99%D0%B0%D0%B6%D3%99%D0%B0%D1%80%D0%B0:%D0%98%D0%BB%D1%8C%D1%8F_%D0%94%D1%80%D0%B0%D0%BA%D0%BE%D0%BD%D0%BE%D0%B2" href="https://ab.wikipedia.org/wiki/%D0%90%D0%BB%D0%B0%D1%85%D3%99%D1%8B%D0%BB%D0%B0_%D0%B0%D1%85%D1%86%D3%99%D0%B0%D0%B6%D3%99%D0%B0%D1%80%D0%B0:%D0%98%D0%BB%D1%8C%D1%8F_%D0%94%D1%80%D0%B0%D0%BA%D0%BE%D0%BD%D0%BE%D0%B2">Алахәыла ахцәажәара:Илья Драконов</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-ace_wikipedia_org'>Usage on ace.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//ace.wikipedia.org/wiki/Pengguna:MelancholieBot" href="https://ace.wikipedia.org/wiki/Pengguna:MelancholieBot">Pengguna:MelancholieBot</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-ady_wikipedia_org'>Usage on ady.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//ady.wikipedia.org/wiki/User_talk:%D0%98%D0%BB%D1%8C%D1%8F_%D0%94%D1%80%D0%B0%D0%BA%D0%BE%D0%BD%D0%BE%D0%B2" href="https://ady.wikipedia.org/wiki/User_talk:%D0%98%D0%BB%D1%8C%D1%8F_%D0%94%D1%80%D0%B0%D0%BA%D0%BE%D0%BD%D0%BE%D0%B2">User talk:Илья Драконов</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-af_wikipedia_org'>Usage on af.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Gangleri" href="https://af.wikipedia.org/wiki/Gebruiker:Gangleri">Gebruiker:Gangleri</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Hendrik" href="https://af.wikipedia.org/wiki/Gebruiker:Hendrik">Gebruiker:Hendrik</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:MelancholieBot" href="https://af.wikipedia.org/wiki/Gebruiker:MelancholieBot">Gebruiker:MelancholieBot</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Numbo3" href="https://af.wikipedia.org/wiki/Gebruiker:Numbo3">Gebruiker:Numbo3</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:MelancholieBot/info" href="https://af.wikipedia.org/wiki/Gebruiker:MelancholieBot/info">Gebruiker:MelancholieBot/info</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruikerbespreking:Maor_X" href="https://af.wikipedia.org/wiki/Gebruikerbespreking:Maor_X">Gebruikerbespreking:Maor X</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruikerbespreking:Josse.Cottenier" href="https://af.wikipedia.org/wiki/Gebruikerbespreking:Josse.Cottenier">Gebruikerbespreking:Josse.Cottenier</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Hantekening" href="https://af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Hantekening">Gebruiker:Josse.Cottenier/Hantekening</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Handtekening" href="https://af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Handtekening">Gebruiker:Josse.Cottenier/Handtekening</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Handtekening2" href="https://af.wikipedia.org/wiki/Gebruiker:Josse.Cottenier/Handtekening2">Gebruiker:Josse.Cottenier/Handtekening2</a></li>
+	<li><a class="external" data-mw-original-href="//af.wikipedia.org/wiki/Gebruikerbespreking:SpesBona/Argief2013" href="https://af.wikipedia.org/wiki/Gebruikerbespreking:SpesBona/Argief2013">Gebruikerbespreking:SpesBona/Argief2013</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-af_wiktionary_org'>Usage on af.wiktionary.org
+<ul>	<li><a class="external" data-mw-original-href="//af.wiktionary.org/wiki/Gebruiker:MelancholieBot/info" href="https://af.wiktionary.org/wiki/Gebruiker:MelancholieBot/info">Gebruiker:MelancholieBot/info</a></li>
+	<li><a class="external" data-mw-original-href="//af.wiktionary.org/wiki/Gebruiker:MelancholieBot" href="https://af.wiktionary.org/wiki/Gebruiker:MelancholieBot">Gebruiker:MelancholieBot</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-ak_wikipedia_org'>Usage on ak.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//ak.wikipedia.org/wiki/User:MelancholieBot" href="https://ak.wikipedia.org/wiki/User:MelancholieBot">User:MelancholieBot</a></li>
+	<li><a class="external" data-mw-original-href="//ak.wikipedia.org/wiki/User:MelancholieBot/info" href="https://ak.wikipedia.org/wiki/User:MelancholieBot/info">User:MelancholieBot/info</a></li>
+</ul></li>
+<li class='mw-gu-onwiki-als_wikipedia_org'>Usage on als.wikipedia.org
+<ul>	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:J._%27mach%27_wust" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:J._%27mach%27_wust">Benutzer Diskussion:J. &#039;mach&#039; wust</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:R%C3%A4toromanische_Sprache" href="https://als.wikipedia.org/wiki/Diskussion:R%C3%A4toromanische_Sprache">Diskussion:Rätoromanische Sprache</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:Ebringen" href="https://als.wikipedia.org/wiki/Diskussion:Ebringen">Diskussion:Ebringen</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Holder/Archiv1" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Holder/Archiv1">Benutzer Diskussion:Holder/Archiv1</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Stephele" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Stephele">Benutzer Diskussion:Stephele</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Amagra" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Amagra">Benutzer Diskussion:Amagra</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Henri_Berger" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Henri_Berger">Benutzer Diskussion:Henri Berger</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:DidiWeidmann" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:DidiWeidmann">Benutzer Diskussion:DidiWeidmann</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Andi_d" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Andi_d">Benutzer Diskussion:Andi d</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:MireilleLibmann" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:MireilleLibmann">Benutzer Diskussion:MireilleLibmann</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Roland.h.bueb" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Roland.h.bueb">Benutzer Diskussion:Roland.h.bueb</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer:MelancholieBot/info" href="https://als.wikipedia.org/wiki/Benutzer:MelancholieBot/info">Benutzer:MelancholieBot/info</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer:Al-qamar/Diskussion_Archiv3" href="https://als.wikipedia.org/wiki/Benutzer:Al-qamar/Diskussion_Archiv3">Benutzer:Al-qamar/Diskussion Archiv3</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Fideli" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Fideli">Benutzer Diskussion:Fideli</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Freigut" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Freigut">Benutzer Diskussion:Freigut</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:Schweiz" href="https://als.wikipedia.org/wiki/Diskussion:Schweiz">Diskussion:Schweiz</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:Berner_Oberland" href="https://als.wikipedia.org/wiki/Diskussion:Berner_Oberland">Diskussion:Berner Oberland</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Wikipedia:Mir_fehlt_das_Wort" href="https://als.wikipedia.org/wiki/Wikipedia:Mir_fehlt_das_Wort">Wikipedia:Mir fehlt das Wort</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:Elsass" href="https://als.wikipedia.org/wiki/Diskussion:Elsass">Diskussion:Elsass</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Holder" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Holder">Benutzer Diskussion:Holder</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Schoff%C3%B6r" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Schoff%C3%B6r">Benutzer Diskussion:Schofför</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer:Al-qamar/Diskussion_Archiv4" href="https://als.wikipedia.org/wiki/Benutzer:Al-qamar/Diskussion_Archiv4">Benutzer:Al-qamar/Diskussion Archiv4</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Wikipedia:Stammtisch/Archiv_2011-1" href="https://als.wikipedia.org/wiki/Wikipedia:Stammtisch/Archiv_2011-1">Wikipedia:Stammtisch/Archiv 2011-1</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Wikipedia_Diskussion:Neuling" href="https://als.wikipedia.org/wiki/Wikipedia_Diskussion:Neuling">Wikipedia Diskussion:Neuling</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Vorlage:Smiley/Doku" href="https://als.wikipedia.org/wiki/Vorlage:Smiley/Doku">Vorlage:Smiley/Doku</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Vorlage:Smiley" href="https://als.wikipedia.org/wiki/Vorlage:Smiley">Vorlage:Smiley</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:B.A.Enz" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:B.A.Enz">Benutzer Diskussion:B.A.Enz</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Diskussion:Issimedeutsch" href="https://als.wikipedia.org/wiki/Diskussion:Issimedeutsch">Diskussion:Issimedeutsch</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Wikipedia_Diskussion:Houptsyte_(Schw%C3%A4bisch)" href="https://als.wikipedia.org/wiki/Wikipedia_Diskussion:Houptsyte_(Schw%C3%A4bisch)">Wikipedia Diskussion:Houptsyte (Schwäbisch)</a></li>
+	<li><a class="external" data-mw-original-href="//als.wikipedia.org/wiki/Benutzer_Diskussion:Struppi51" href="https://als.wikipedia.org/wiki/Benutzer_Diskussion:Struppi51">Benutzer Diskussion:Struppi51</a></li>
+</ul></li>
+</ul>
+<p>View <a href="/wiki/Special:GlobalUsage/Smiley.svg" title="Special:GlobalUsage/Smiley.svg">more global usage</a> of this file.
+</p></div><h2 id="metadata">Metadata</h2>
+<div class="mw-imagepage-section-metadata"><p>This file contains additional information, probably added from the digital camera or scanner used to create or digitize it.
+</p><p>
+If the file has been modified from its original state, some details may not fully reflect the modified file.</p><table id="mw&#95;metadata" class="mw&#95;metadata collapsed">
+<tbody><tr class="exif-imagewidth mw-metadata-collapsible"><th>Width</th><td>800</td></tr><tr class="exif-imagelength mw-metadata-collapsible"><th>Height</th><td>800</td></tr></tbody></table>
+</div><noscript><img src="https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&amp;type=1x1&amp;usesul3=1" alt="" width="1" height="1" style="border: none; position: absolute;"></noscript>
+<div class="printfooter" data-nosnippet="">Retrieved from "<a dir="ltr" href="https://en.wikipedia.org/wiki/File:Smiley.svg">https://en.wikipedia.org/wiki/File:Smiley.svg</a>"</div></div>
+					<div id="catlinks" class="catlinks catlinks-allhidden" data-mw-interface=""></div>
+				</div>
+			</main>
+			
+		</div>
+		<div class="mw-footer-container">
+			<footer id="footer" class="mw-footer" >
+				<ul id="footer-info" class="mw-portlet mw-portlet-footer-info">
+	<li id="footer-info-copyright">Text is available under the <a href="/wiki/Wikipedia:Text_of_the_Creative_Commons_Attribution-ShareAlike_4.0_International_License" title="Wikipedia:Text of the Creative Commons Attribution-ShareAlike 4.0 International License">Creative Commons Attribution-ShareAlike 4.0 License</a>;
+additional terms may apply. By using this site, you agree to the <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Terms_of_Use" class="extiw" title="foundation:Special:MyLanguage/Policy:Terms of Use">Terms of Use</a> and <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy" class="extiw" title="foundation:Special:MyLanguage/Policy:Privacy policy">Privacy Policy</a>. Wikipedia® is a registered trademark of the <a rel="nofollow" class="external text" href="https://wikimediafoundation.org/">Wikimedia Foundation, Inc.</a>, a non-profit organization.</li>
+</ul>
+
+				<ul id="footer-places" class="mw-portlet mw-portlet-footer-places">
+	<li id="footer-places-privacy"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy">Privacy policy</a></li>
+	<li id="footer-places-about"><a href="/wiki/Wikipedia:About">About Wikipedia</a></li>
+	<li id="footer-places-disclaimers"><a href="/wiki/Wikipedia:General_disclaimer">Disclaimers</a></li>
+	<li id="footer-places-contact"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us">Contact Wikipedia</a></li>
+	<li id="footer-places-legal-safety-contacts"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Legal:Wikimedia_Foundation_Legal_and_Safety_Contact_Information">Legal &amp; safety contacts</a></li>
+	<li id="footer-places-wm-codeofconduct"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Universal_Code_of_Conduct">Code of Conduct</a></li>
+	<li id="footer-places-developers"><a href="https://developer.wikimedia.org">Developers</a></li>
+	<li id="footer-places-statslink"><a href="https://stats.wikimedia.org/#/en.wikipedia.org">Statistics</a></li>
+	<li id="footer-places-cookiestatement"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Cookie_statement">Cookie statement</a></li>
+	<li id="footer-places-mobileview"><a href="//en.wikipedia.org/w/index.php?title=File:Smiley.svg&amp;mobileaction=toggle_view_mobile" class="noprint stopMobileRedirectToggle">Mobile view</a></li>
+</ul>
+
+				<ul id="footer-icons" class="mw-portlet mw-portlet-footer-icons noprint">
+	<li id="footer-copyrightico"><a href="https://www.wikimedia.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/static/images/footer/wikimedia-button.svg" width="84" height="29"><img src="/static/images/footer/wikimedia.svg" width="25" height="25" alt="Wikimedia Foundation" lang="en" loading="lazy"></picture></a></li>
+	<li id="footer-poweredbyico"><a href="https://www.mediawiki.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/w/resources/assets/poweredby_mediawiki.svg" width="88" height="31"><img src="/w/resources/assets/mediawiki_compact.svg" alt="Powered by MediaWiki" lang="en" width="25" height="25" loading="lazy"></picture></a></li>
+</ul>
+
+			</footer>
+		</div>
+	</div> 
+</div> 
+<div class="vector-header-container vector-sticky-header-container no-font-mode-scale">
+	<div id="vector-sticky-header" class="vector-sticky-header">
+		<div class="vector-sticky-header-start">
+			<div class="vector-sticky-header-icon-start vector-button-flush-left" aria-hidden="true">
+				<button class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-sticky-header-search-toggle" tabindex="-1" data-event-name="ui.vector-sticky-search-form.icon"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+			</button>
+		</div>
+			
+		<div role="search" class="vector-search-box-vue  vector-search-box-show-thumbnail vector-search-box">
+			<div class="vector-typeahead-search-container">
+				<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail">
+					<form action="/w/index.php" id="vector-sticky-search-form" class="cdx-search-input cdx-search-input--has-end-button">
+						<div  class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+							<div class="cdx-text-input cdx-text-input--has-start-icon">
+								<input
+									class="cdx-text-input__input mw-searchInput" autocomplete="off"
+									
+									type="search" name="search" placeholder="Search Wikipedia">
+								<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+							</div>
+							<input type="hidden" name="title" value="Special:Search">
+						</div>
+						<button class="cdx-button cdx-search-input__end-button">Search</button>
+					</form>
+				</div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-context-bar">
+				<nav aria-label="Contents" class="vector-toc-landmark">
+						
+					<div id="vector-sticky-header-toc" class="vector-dropdown mw-portlet mw-portlet-sticky-header-toc vector-sticky-header-toc vector-button-flush-left"  >
+						<input type="checkbox" id="vector-sticky-header-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-sticky-header-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+						<label id="vector-sticky-header-toc-label" for="vector-sticky-header-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+						</label>
+						<div class="vector-dropdown-content">
+					
+						<div id="vector-sticky-header-toc-unpinned-container" class="vector-unpinned-container">
+						</div>
+					
+						</div>
+					</div>
+			</nav>
+				<div class="vector-sticky-header-context-bar-primary" aria-hidden="true" >File:Smiley.svg</div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-end" aria-hidden="true">
+			<div class="vector-sticky-header-icons">
+				<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-talk-sticky-header" tabindex="-1" data-event-name="talk-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbles mw-ui-icon-wikimedia-speechBubbles cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-subject-sticky-header" tabindex="-1" data-event-name="subject-sticky-header"><span class="vector-icon mw-ui-icon-article mw-ui-icon-wikimedia-article cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-history-sticky-header" tabindex="-1" data-event-name="history-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-history mw-ui-icon-wikimedia-wikimedia-history cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only mw-watchlink" id="ca-watchstar-sticky-header" tabindex="-1" data-event-name="watch-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-star mw-ui-icon-wikimedia-wikimedia-star cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-edit-sticky-header" tabindex="-1" data-event-name="wikitext-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-wikiText mw-ui-icon-wikimedia-wikimedia-wikiText cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-ve-edit-sticky-header" tabindex="-1" data-event-name="ve-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-edit mw-ui-icon-wikimedia-wikimedia-edit cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-viewsource-sticky-header" tabindex="-1" data-event-name="ve-edit-protected-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-editLock mw-ui-icon-wikimedia-wikimedia-editLock cdx-button__icon"></span>
+
+<span></span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-buttons">
+				<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive" id="ca-addsection-sticky-header" tabindex="-1" data-event-name="addsection-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbleAdd-progressive mw-ui-icon-wikimedia-speechBubbleAdd-progressive cdx-button__icon"></span>
+
+<span>Add topic</span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-icon-end">
+				<div class="vector-user-links">
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="mw-portlet mw-portlet-dock-bottom emptyPortlet" id="p-dock-bottom">
+	<ul>
+		
+	</ul>
+</div>
+<script>(RLQ=window.RLQ||[]).push(function(){mw.config.set({"wgHostname":"mw-web.codfw.main-c75b5bdb4-7hrmd","wgBackendResponseTime":355,"wgPageParseReport":{"limitreport":{"cputime":"0.001","walltime":"0.001","ppvisitednodes":{"value":1,"limit":1000000},"revisionsize":{"value":464,"limit":2097152},"postexpandincludesize":{"value":0,"limit":2097152},"templateargumentsize":{"value":0,"limit":2097152},"expansiondepth":{"value":1,"limit":100},"expensivefunctioncount":{"value":0,"limit":500},"unstrip-depth":{"value":0,"limit":20},"unstrip-size":{"value":0,"limit":5000000},"entityaccesscount":{"value":0,"limit":500},"timingprofile":["100.00%    0.000      1 -total"]},"cachereport":{"origin":"mw-web.codfw.main-c75b5bdb4-7hrmd","timestamp":"20260909201417","ttl":2592000,"transientcontent":false}}});});</script>
+</body>
+</html>
